@@ -11,6 +11,9 @@ from telegram.ext import (
     filters
 )
 import nest_asyncio
+from aiohttp import web
+import threading
+import random
 
 nest_asyncio.apply()
 logging.basicConfig(level=logging.INFO)
@@ -21,19 +24,28 @@ user_tasks = {"arshad": [], "rahmu": []}
 user_states = {}
 temp_task = {}
 
+motivation_lines = [
+    "🌸 You're doing amazing, keep going!",
+    "💖 Small steps make big changes!",
+    "🌞 You got this, one task at a time.",
+    "💫 Let's make today beautiful and productive.",
+    "🌼 A little progress each day adds up to big results!"
+]
+
 # ===== UI Helpers =====
 def get_user_markup():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Arshad", callback_data="user_arshad")],
-        [InlineKeyboardButton("Rahmu", callback_data="user_rahmu")]
+        [InlineKeyboardButton("💙 Arshad", callback_data="user_arshad")],
+        [InlineKeyboardButton("💗 Rahmu", callback_data="user_rahmu")]
     ])
 
 def get_main_menu_markup(user):
+    line = random.choice(motivation_lines)
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Add Task", callback_data="add_task")],
         [InlineKeyboardButton("📋 View Tasks", callback_data="view_tasks")],
         [InlineKeyboardButton("🗑️ Clear Tasks", callback_data="clear_tasks")]
-    ])
+    ]), line
 
 def get_back_and_view_tasks_markup():
     return InlineKeyboardMarkup([
@@ -42,7 +54,7 @@ def get_back_and_view_tasks_markup():
     ])
 
 def task_action_buttons(idx):
-    return InlineKeyboardMarkup([[
+    return InlineKeyboardMarkup([[ 
         InlineKeyboardButton("✅ Done", callback_data=f"done_{idx}"),
         InlineKeyboardButton("✏️ Edit", callback_data=f"edit_{idx}"),
         InlineKeyboardButton("🗑️ Delete", callback_data=f"delete_{idx}")
@@ -66,16 +78,17 @@ def get_time_markup():
 
 # ===== Handlers =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Who is using the bot?", reply_markup=get_user_markup())
+    await update.message.reply_text("Hey love, who’s using the bot today? 💕", reply_markup=get_user_markup())
 
 async def user_selector(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     user = q.data.split("_")[1]  # "arshad" or "rahmu"
     user_selection[q.from_user.id] = user
+    markup, quote = get_main_menu_markup(user)
     await q.edit_message_text(
-        f"Welcome {user.capitalize()}! Choose an action:",
-        reply_markup=get_main_menu_markup(user)
+        f"Welcome back, {user.capitalize()} ❤️\n\n{quote}\n\nChoose what you want to do:",
+        reply_markup=markup
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -85,90 +98,76 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = user_selection.get(user_id)
     data = q.data
 
-    # ➕ Add Task
     if data == "add_task":
         user_states[user_id] = "awaiting_name"
-        await q.edit_message_text("Enter the *task name*:", parse_mode="Markdown")
+        await q.edit_message_text("✨ Tell me the *task name* you'd like to add:", parse_mode="Markdown")
         return
 
-    # 📋 View Tasks
     if data == "view_tasks":
         tasks = user_tasks.get(user, [])
-        # If no tasks, show buttons
         if not tasks:
             await q.edit_message_text(
-                "No tasks found.",
+                "No tasks yet, love! Let’s add one 🌷",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("➕ Add More Tasks", callback_data="add_task")],
-                    [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+                    [InlineKeyboardButton("➕ Add Task", callback_data="add_task")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="back_to_menu")]
                 ])
             )
             return
 
-        # Otherwise list tasks
-        await q.edit_message_text("Here are your tasks:")
+        await q.edit_message_text("Here are your lovely tasks:")
         for idx, t in enumerate(tasks):
             status = "✅" if t["done"] else "❌"
-            text = f"{idx+1}. {status} *{t['name']}*\n⏰ {t['deadline'].strftime('%d %b %Y %H:%M')}"
+            text = f"{idx+1}. {status} *{t['name']}*\n🕒 {t['deadline'].strftime('%d %b %Y %H:%M')}"
             await q.message.chat.send_message(
                 text, parse_mode="Markdown",
                 reply_markup=task_action_buttons(idx)
             )
-        # After listing, show navigation buttons
         await q.message.chat.send_message(
-            "What next?",
+            "What next, sweetheart?",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ Add More Tasks", callback_data="add_task")],
-                [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_to_menu")]
+                [InlineKeyboardButton("➕ Add More", callback_data="add_task")],
+                [InlineKeyboardButton("🔙 Back", callback_data="back_to_menu")]
             ])
         )
         return
 
-    # 🗑️ Clear Tasks
     if data == "clear_tasks":
         user_tasks[user] = []
-        await q.edit_message_text(
-            "All tasks cleared.",
-            reply_markup=get_back_and_view_tasks_markup()
-        )
+        await q.edit_message_text("🧹 All tasks cleared, fresh start love!", reply_markup=get_back_and_view_tasks_markup())
         return
 
-    # ✅ Done, 🗑️ Delete, ✏️ Edit
     if data.startswith(("done_", "delete_", "edit_")):
         cmd, idx_str = data.split("_")
         idx = int(idx_str)
         tasks = user_tasks[user]
         if cmd == "done" and 0 <= idx < len(tasks):
             tasks[idx]["done"] = True
-            await q.edit_message_text("Task marked done.", reply_markup=get_back_and_view_tasks_markup())
-            return
-        if cmd == "delete" and 0 <= idx < len(tasks):
+            await q.edit_message_text("✅ Task marked done!", reply_markup=get_back_and_view_tasks_markup())
+        elif cmd == "delete" and 0 <= idx < len(tasks):
             tasks.pop(idx)
-            await q.edit_message_text("Task deleted.", reply_markup=get_back_and_view_tasks_markup())
-            return
-        if cmd == "edit" and 0 <= idx < len(tasks):
+            await q.edit_message_text("🗑️ Task deleted!", reply_markup=get_back_and_view_tasks_markup())
+        elif cmd == "edit" and 0 <= idx < len(tasks):
             temp_task[user_id] = {"edit_index": idx}
             user_states[user_id] = "editing_name"
-            await q.edit_message_text("Enter the *new task name*:", parse_mode="Markdown")
-            return
+            await q.edit_message_text("✍️ What should be the new *task name*?", parse_mode="Markdown")
+        return
 
-    # 🔙 Back to Menu
     if data == "back_to_menu":
+        markup, quote = get_main_menu_markup(user)
         await q.edit_message_text(
-            f"What would you like to do, {user.capitalize()}?",
-            reply_markup=get_main_menu_markup(user)
+            f"Alrighty! What now, {user.capitalize()}? 💌\n\n{quote}",
+            reply_markup=markup
         )
         return
 
-    # 📅 Date selected
     if data.startswith("date_"):
         _, y, m, d = data.split("_")
         dt = datetime(int(y), int(m), int(d))
         temp_task[user_id]["date"] = dt
-        await q.edit_message_text("Select the time:", reply_markup=get_time_markup())
+        await q.edit_message_text("Now pick the time 🕒:", reply_markup=get_time_markup())
         return
 
-    # ⏰ Time selected
     if data.startswith("time_"):
         _, hour_str, minute_str = data.split("_")
         h, mi = int(hour_str), int(minute_str)
@@ -180,20 +179,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "name": task_data["name"],
                 "deadline": dt
             })
-            await q.edit_message_text(
-                "✅ Task updated!",
-                reply_markup=get_back_and_view_tasks_markup()
-            )
+            await q.edit_message_text("📝 Task updated, love!", reply_markup=get_back_and_view_tasks_markup())
         else:
             user_tasks[user].append({
                 "name": task_data["name"],
                 "deadline": dt,
                 "done": False
             })
-            await q.edit_message_text(
-                "✅ Task added!",
-                reply_markup=get_back_and_view_tasks_markup()
-            )
+            await q.edit_message_text("🎉 Task added successfully!", reply_markup=get_back_and_view_tasks_markup())
         return
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -201,25 +194,58 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_states.get(user_id)
     user = user_selection.get(user_id)
 
-    # Entering or editing task name
     if state in ("awaiting_name", "editing_name"):
         temp_task[user_id] = temp_task.get(user_id, {})
         temp_task[user_id]["name"] = update.message.text
         user_states[user_id] = None
-        await update.message.reply_text(
-            "Now choose a deadline date:",
-            reply_markup=get_deadline_date_markup()
-        )
+        await update.message.reply_text("🗓️ Now choose a deadline date:", reply_markup=get_deadline_date_markup())
     else:
-        await update.message.reply_text("Please use /start to begin.")
+        await update.message.reply_text("Hi love, please type /start to begin 💬")
 
+# ===== Daily Reminder Task =====
+async def send_daily_reminders(app):
+    while True:
+        now = datetime.now()
+        target_time = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        if now > target_time:
+            target_time += timedelta(days=1)
+        wait_time = (target_time - now).total_seconds()
+        await asyncio.sleep(wait_time)
+
+        for user_id, user in user_selection.items():
+            tasks = user_tasks.get(user, [])
+            if tasks:
+                lines = [f"{idx+1}. {t['name']} – {'✅' if t['done'] else '❌'}" for idx, t in enumerate(tasks)]
+                message = f"🌞 Good morning, {user.capitalize()}!\n\nHere's your task list:\n" + "\n".join(lines)
+            else:
+                message = f"🌅 Morning, {user.capitalize()}! You’ve got no tasks yet. Let’s add one today 💕"
+            try:
+                await app.bot.send_message(chat_id=user_id, text=message)
+            except:
+                continue
+
+# ===== Health check endpoint =====
+async def handle_ping(request):
+    return web.Response(text="OK")
+
+def start_health_server():
+    app = web.Application()
+    app.router.add_get("/health", handle_ping)
+    web.run_app(app, port=8000)
+
+# ===== Run Bot =====
 async def main():
     app = ApplicationBuilder().token("7877522996:AAFljhNT3EEguS9kZECBTGRW5M5gcvivbUU").build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(user_selector, pattern="^user_"))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    print("Bot is running…")
+
+    # Background threads
+    threading.Thread(target=start_health_server, daemon=True).start()
+    asyncio.create_task(send_daily_reminders(app))
+
+    print("Bot is running...")
     await app.run_polling()
 
 if __name__ == "__main__":
