@@ -231,7 +231,7 @@ async def handle_ping(request):
 def start_health_server():
     app = web.Application()
     app.router.add_get("/health", handle_ping)
-    web.run_app(app, port=8000)
+    web.run_app(app, port=10000)
 
 # ===== Run Bot =====
 async def main():
